@@ -205,7 +205,7 @@ misc.NBER.Recessions <- function(){
 }
 
 
-# Chart functions
+# Charting functions
 
 misc.GDPExpansionPlot <- function( series ){
   
@@ -463,6 +463,53 @@ Chart.Four <- function(series1, series2, series3, series4, periods, tweet = FALS
 }
 
 
+
+InterestRate.Chart <- function(Data.Rates, tweet = FALSE) {
+  Data.Rates.dim <- length(colnames(Data.Rates))
+  Data.Rates[,2:Data.Rates.dim] <- Data.Rates[,2:Data.Rates.dim] - Data.Rates[,1:(Data.Rates.dim-1)]
+  
+  week  <- function(x)format(x, '%Y.W%W')
+  month <- function(x)format(x, '%Y.M%m')
+  year  <- function(x)format(x, '%Y')
+  
+  Data.Rates.D        <- as.zoo(Data.Rates[index(Data.Rates)>=Sys.Date() %m-% months(1),])
+  Data.Rates.M        <- as.zoo(Data.Rates[index(Data.Rates)>=Sys.Date()-years(5),])
+  Data.Rates.M        <- aggregate(Data.Rates.M, by=month, FUN=mean, na.rm=TRUE)
+  Data.Rates.Names    <-c("1Y", "2Y", "3Y", "5Y", "7Y", "10Y") 
+  index(Data.Rates.M) <- as.yearmon(index(Data.Rates.M), format = "%Y.M%m")
+  
+  
+  if (tweet) {
+    tmp <- tempfile(fileext = ".png")
+    png(tmp, 12, 12, "in", res = 127.5)
+  } else png(filename="US.Rates.Daily.png")
+  
+  par(mfrow = c(2,1))
+  
+  chart.col = brewer.pal(Data.Rates.dim, "Paired")
+  
+  barplot(na.omit(Data.Rates.D), col=chart.col, cex.main=0.75, cex.names = 0.75, border=NA, 
+          main="Treasury Rates (Constant Maturity, Daily Yields in %):\n Changes in the last month")
+  grid(col="black")
+  legend("bottomleft", Data.Rates.Names, fill=chart.col, cex=0.75)
+  
+  barplot(Data.Rates.M, col=chart.col, cex.main=0.75, cex.names = 0.75, border=NA, #las=2,
+          main="Treasury Rates (Constant Maturity, Monthly Average Yield in %):\n Evolution over the past 5 years")
+  grid(col="black")
+  legend("bottomleft", Data.Rates.Names, fill=chart.col, cex=0.75)
+  par(mfrow = c(1,1))
+  
+  dev.off()
+  if (tweet) post_tweet("What's Driving Changes in the US Yield Curve? #rstats", media = tmp)
+}
+
+
+# End Charting functions
+
+
+# ----------------
+
+
 # GDP Release
 
 if ( as.Date( as.character(tail( fredr_release_dates(release_id = 53L) ,1)[,2]) ) == Sys.Date() ) {
@@ -499,6 +546,26 @@ Chart.Duo(series1="US.Activity.RetailSales", series2="US.Activity.RetailSalesExA
 
 # Labor Market
 
+if ( as.Date( as.character(tail( fredr_release_dates(release_id = 192L) ,1)[,2]) ) == Sys.Date() ) {
+  
+  Chart.Single(series="US.JOLTS.QuitsRate",
+               periods = 25,
+               tweet = ( as.Date( as.character(tail( fredr_release_dates(release_id = 199L) ,1)[,2]) ) == Sys.Date() ),  
+               tweet.text = "#JOLTS update: Quits rate #rstats")
+  
+  Chart.Single(series="US.JOLTS.HireRate",
+               periods = 25,
+               tweet = ( as.Date( as.character(tail( fredr_release_dates(release_id = 199L) ,1)[,2]) ) == Sys.Date() ),  
+               tweet.text = "#JOLTS update: Hire rate #rstats")
+  
+  Chart.Single(series="US.JOLTS.JobOpeningsRate",
+               periods = 25,
+               tweet = ( as.Date( as.character(tail( fredr_release_dates(release_id = 199L) ,1)[,2]) ) == Sys.Date() ),  
+               tweet.text = "#JOLTS update: Rate of job openings #rstats")
+  
+}
+
+
 if ( as.Date( as.character(tail( fredr_release_dates(release_id = 50L) ,1)[,2]) ) == Sys.Date() ) {
   
   tmp <- tempfile(fileext = ".png")
@@ -507,27 +574,7 @@ if ( as.Date( as.character(tail( fredr_release_dates(release_id = 50L) ,1)[,2]) 
   misc.GDPExpansionPlot(series = "US.Payroll")
   
   dev.off()
-  post_tweet("How Does the Recovery in the Labor Market Compare to Previous Recessions? #payrolls #recovery #rstats", media = tmp)
-}
-
-
-if ( as.Date( as.character(tail( fredr_release_dates(release_id = 192L) ,1)[,2]) ) == Sys.Date() ) {
-  
-  Chart.Single(series="US.JOLTS.QuitsRate",
-               periods = 25,
-               tweet = ( as.Date( as.character(tail( fredr_release_dates(release_id = 199L) ,1)[,2]) ) == Sys.Date() ),  
-               tweet.text = "S&P/Case-Shiller U.S. National Home Price Index (source: FRED, series CSUSHPINSA) #housing #rstats")
-  
-  Chart.Single(series="US.JOLTS.HireRate",
-               periods = 25,
-               tweet = ( as.Date( as.character(tail( fredr_release_dates(release_id = 199L) ,1)[,2]) ) == Sys.Date() ),  
-               tweet.text = "S&P/Case-Shiller U.S. National Home Price Index (source: FRED, series CSUSHPINSA) #housing #rstats")
-  
-  Chart.Single(series="US.JOLTS.JobOpeningsRate",
-               periods = 25,
-               tweet = ( as.Date( as.character(tail( fredr_release_dates(release_id = 199L) ,1)[,2]) ) == Sys.Date() ),  
-               tweet.text = "S&P/Case-Shiller U.S. National Home Price Index (source: FRED, series CSUSHPINSA) #housing #rstats")
-  
+  post_tweet("#Payroll Update: Comparing the current #recovery of the #LaborMarket to previous recessions #rstats", media = tmp)
 }
 
 
@@ -537,7 +584,7 @@ Chart.Four(series1 = "US.Unemployment",
            series4 = "US.Unemployment.PartTimeNonEconomicReasons", 
            periods = 25,
            tweet = ( as.Date( as.character(tail( fredr_release_dates(release_id = 50L) ,1)[,2]) ) == Sys.Date() ),
-           tweet.text = "#PayrollDataUpdate: #LaborMarket is improving with #unemployment down, but the #ParticipationRate still hasn't fully recovered #rstats")
+           tweet.text = "#Payroll Update: #LaborMarket is improving with #unemployment down, but the #ParticipationRate still hasn't fully recovered #rstats")
 
 Chart.Four(series1 = "US.Unemployment.EmploymentToPopulation", 
            series2 = "US.JOLTS.JobOpeningsRate", 
@@ -545,7 +592,7 @@ Chart.Four(series1 = "US.Unemployment.EmploymentToPopulation",
            series4 = "US.Unemployment.U1", 
            periods = 25,
            tweet = ( as.Date( as.character(tail( fredr_release_dates(release_id = 50L) ,1)[,2]) ) == Sys.Date() ),
-           tweet.text = "#PayrollDataUpdate: Details behind the topline number (source: FRED) #LaborMarket #rstats")
+           tweet.text = "#Payroll Update: Details behind the topline number (source: FRED) #LaborMarket #rstats")
 
 
 
@@ -605,56 +652,11 @@ Chart.Duo(series1="US.Transportation.Rail", series2="US.Transportation.Index",
 
 
 
-
-
-
-
-
-
-InterestRate.Chart <- function(Data.Rates, tweet = FALSE) {
-  Data.Rates.dim <- length(colnames(Data.Rates))
-  Data.Rates[,2:Data.Rates.dim] <- Data.Rates[,2:Data.Rates.dim] - Data.Rates[,1:(Data.Rates.dim-1)]
-  
-  week  <- function(x)format(x, '%Y.W%W')
-  month <- function(x)format(x, '%Y.M%m')
-  year  <- function(x)format(x, '%Y')
-  
-  Data.Rates.D        <- as.zoo(Data.Rates[index(Data.Rates)>=Sys.Date() %m-% months(1),])
-  Data.Rates.M        <- as.zoo(Data.Rates[index(Data.Rates)>=Sys.Date()-years(5),])
-  Data.Rates.M        <- aggregate(Data.Rates.M, by=month, FUN=mean, na.rm=TRUE)
-  Data.Rates.Names    <-c("1Y", "2Y", "3Y", "5Y", "7Y", "10Y") 
-  index(Data.Rates.M) <- as.yearmon(index(Data.Rates.M), format = "%Y.M%m")
-  
-  
-  if (tweet) {
-    tmp <- tempfile(fileext = ".png")
-    png(tmp, 12, 12, "in", res = 127.5)
-  } else png(filename="US.Rates.Daily.png")
-  
-  par(mfrow = c(2,1))
-  
-  chart.col = brewer.pal(Data.Rates.dim, "Paired")
-  
-  barplot(na.omit(Data.Rates.D), col=chart.col, cex.main=0.75, cex.names = 0.75, border=NA, 
-          main="Treasury Rates (Constant Maturity, Daily Yields in %):\n Changes in the last month")
-  grid(col="black")
-  legend("bottomleft", Data.Rates.Names, fill=chart.col, cex=0.75)
-  
-  barplot(Data.Rates.M, col=chart.col, cex.main=0.75, cex.names = 0.75, border=NA, #las=2,
-          main="Treasury Rates (Constant Maturity, Monthly Average Yield in %):\n Evolution over the past 5 years")
-  grid(col="black")
-  legend("bottomleft", Data.Rates.Names, fill=chart.col, cex=0.75)
-  par(mfrow = c(1,1))
-  
-  dev.off()
-  if (tweet) post_tweet("What's Driving Changes in the US Yield Curve? #rstats", media = tmp)
-}
-
 #Tweet the interest rate chart every Friday
 InterestRate.Chart(Data.Rates = Reduce(function(...) merge(...), list( misc.FREDdowload("US.SOV.1Y"), 
                                                                        misc.FREDdowload("US.SOV.2Y"), 
-                                                                                        misc.FREDdowload("US.SOV.3Y"), 
+                                                                       misc.FREDdowload("US.SOV.3Y"), 
                                                                        misc.FREDdowload("US.SOV.5Y"), 
-                                                                                                         misc.FREDdowload("US.SOV.7Y"), 
+                                                                       misc.FREDdowload("US.SOV.7Y"), 
                                                                        misc.FREDdowload("US.SOV.10Y") )), 
                    tweet = (weekdays(Sys.Date()) == "Friday"))
