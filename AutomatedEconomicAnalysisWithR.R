@@ -38,9 +38,8 @@ rm(list=ls())
 
 ## Credentials
 
-FRED_API_KEY <- ""
-
-source("Credentials.R")   # file where credentials are stored
+FRED_API_KEY <- ""  # empty string - the "Creditials.R" file contains the FRED access code
+source("Credentials.R")   # file where credentials are stored - "bring your own"
 fredr_set_key(FRED_API_KEY)
 
 
@@ -142,18 +141,19 @@ Data.US <- c("US.GDP.Real"="GDPC1",
              "US.H8.BanksCredit.Consumer" = "CLSACBW027SBOG",
              "US.H8.BanksCredit.Other" = "AOLACBW027SBOG",
              
-             "US.Banks.NIM" = "USNIM",
-             "US.Banks.ROA" = "USROA",
-             "US.Banks.ROE" = "USROE",
-             "US.Banks.EquityTotalAssets" = "EQTA",
-             "US.Banks.TotalNetLoanLossesToAverageLoans" = "NCOTOT",
-             "US.Banks.NetLoanLossesToAverageLoans" = "USLSTL",
-             "US.Banks.NetChargeOffRateTotalLoans" = "QBPLNTLNNTCGOFFR",
+             "US.FDIC.NetChargeOffRateTotalLoans" = "QBPLNTLNNTCGOFFR",
+             "US.FDIC.LoanLossProvisions" = "QBPQYLNLOSS",
+             "US.FDIC.UnprofitableInstitutions" = "QBPQYNUMINSTUNPR",
+             "US.FDIC.InstitutionsWithEarningsGain" = "QBPQYNUMINSTYY",
              
-             "US.Banks.LoanLossProvisions" = "QBPQYLNLOSS",
              "US.GasPrices" = "GASALLW",
              "US.EconomicPolicyUncertaintyIndex" = "USEPUINDXD",
-             "US.Commodities.Oilprices" = "DCOILWTICO"
+             "US.Commodities.Oilprices" = "DCOILWTICO",
+             
+             "EU.GDP.Real"="CLVMNACSCAB1GQEA19",
+             "UK.GDP.Real"="NAEXKP01GBQ652S",
+             "CA.GDP.Real"="NAEXKP01CAQ189S",
+             "JP.GDP.Real" = "NAEXKP01JPQ661S"
              
 )
 
@@ -185,6 +185,7 @@ misc.FREDdowload <- function(series) {
     cat("\n       Downloading", series)
     x = fredr( series_id = Data.Description[Data.Description$Mnemonic == series,2] )
     x = zoo(x$value, as.Date(x$date))
+    if ((series == "US.H8.FedFundsSold") || (series == "US.H8.TradingAssets")) x<- x / 1000
   } else {
     
     cat(series, "exists \n")
@@ -377,7 +378,6 @@ Chart.Duo <- function(series1, series2, periods, tweet = FALSE, tweet.text = "")
          ylim = chart.ylim,
          #ylab = "Source: FRED, Federal Reserve Bank of St. Louis",
          ylab = Data.Description[grep(series1, Data.Description[,1]),5],
-         
          xlab = paste0("Period: ", year(index(x1[1])), " - ", year(index(tail(x1,1))), " (shaded areas indicate U.S. recessions)"))
     points( index(tail(x1, 1)), tail(x1,1), col = chart.col, pch = 19, lwd = 5)
     abline(v = as.Date(paste0(seq( year(index(x1[1])), year(Sys.Date()), 1), "-01-01")), lty = 3, lwd = 0.5)
@@ -504,11 +504,112 @@ InterestRate.Chart <- function(Data.Rates, tweet = FALSE) {
 }
 
 
+
+Evolution.Chart <- function(Evolution.Data, tweet = FALSE){
+  
+  Evolution.Data <- apply(Evolution.Data, 2, function(X) 100*(X/X[1]))
+  Evolution.Data <- zoo(Evolution.Data, as.yearqtr(as.Date(rownames(Evolution.Data))) )
+  
+  if (tweet) {
+    tmp <- tempfile(fileext = ".png")
+    png(tmp, 12, 12, "in", res = 2* 127.5)
+  } else png(filename="EvolutionChart.png")
+  
+  
+  chart.col   = brewer.pal(6, "Paired")
+  chart.lty   = c(rep(1, (ncol(Evolution.Data)-1)), 1)
+  chart.lwd   = c(rep(3, (ncol(Evolution.Data)-1)), 3)
+  line.color  = chart.col
+  
+  plot((Evolution.Data[,1]), main = "Evolution of real GDP \n (All countries indexed to 100 in Q4 2019)", type = "n",
+       xaxt="n", 
+       xlab="", ylab="", 
+       xlim = c( min(index(Evolution.Data)), as.yearqtr( as.Date( max(index(Evolution.Data)) ) + months(3) )  ),
+       ylim=c(min(Evolution.Data, na.rm=TRUE), 1.02*max(Evolution.Data, na.rm=TRUE)))
+  axis(1, at=index(Evolution.Data[,1]), label = index(Evolution.Data),
+       col.axis="black", cex.axis=0.9)
+  for (idx in 1:ncol(Evolution.Data)){
+    
+    lines((Evolution.Data[,idx]), col = line.color[idx], lwd=chart.lwd[idx], lty=chart.lty[idx])
+    points( tail(index(na.omit(Evolution.Data[,idx])),1), as.numeric(tail((na.omit(Evolution.Data[,idx])),1)), 
+            col = chart.col[idx], 
+            pch = 19, 
+            lwd = 5)
+    text( 
+      tail(index(na.omit(Evolution.Data[,idx])),1), 
+      as.numeric(tail((na.omit(Evolution.Data[,idx])),1)), 
+      paste0( "  ", colnames(Evolution.Data)[idx], ": ",   round(as.numeric(tail((na.omit(Evolution.Data[,idx])),1)),1), "%" ),
+      font = 2, cex = .8,
+      adj = c(0,0) )
+  }
+  abline(h= 100, lty = 2)
+  legend("bottomright", legend=c("United States", "Euro Area", "United Kingdom", "Japan", "Canada"), fill=chart.col, cex=0.75) 
+  dev.off()
+  if (tweet) post_tweet("Who Recovers Faster? Comparing The #Recovery Since the OutSet of the Pandemic Across Major Industrialized Countries #rstats", media = tmp)
+}
+
+
+
 # End Charting functions
 
 
 # ----------------
+# Weekly Updates
+# ----------------
 
+# Monday: Gas Prices
+Chart.Duo(series1="US.GasPrices", series2="US.Commodities.Oilprices",
+          periods = 25,
+          tweet = (weekdays(Sys.Date()) == "Monday"),
+          tweet.text = paste0("Paying more for #gas? Weighted av. gas prices currently at $", 
+                              tail(US.GasPrices,1),
+                              ". Relative to 12 months ago, this is a $", 
+                              round( as.numeric(tail(US.GasPrices,1)) - as.numeric(tail(US.GasPrices,53)[1]), 2),
+                              ifelse( round( as.numeric(tail(US.GasPrices,1)) - as.numeric(tail(US.GasPrices,53)[1]), 2), 
+                                      " increase.  #rstats", " decrease. #inflation #rstats") )
+)
+
+
+# Wednesday: Economic Uncertainty
+Chart.Single(series="US.EconomicPolicyUncertaintyIndex",
+             periods = 2,
+             tweet = (weekdays(Sys.Date()) == "Wednesday"),  
+             tweet.text = "The daily news-based Economic Policy Uncertainty Index is based on newspapers in the US. See Baker, Scott R., Bloom, Nick and Davis, Stephen J., Economic Policy Uncertainty Index for United States (source: FRED, USEPUINDXD) #EconomicUncertainty #rstats")
+
+
+
+#Thursday: Bank Balance Sheet Data
+
+# BankData <- Reduce(function(...) merge(...), list( misc.FREDdowload("US.H8.BanksCredit.Securities"),
+#                                                    misc.FREDdowload("US.H8.BanksCredit.LoansLeases"),
+#                                                    misc.FREDdowload("US.H8.InterBankLoans"),
+#                                                    misc.FREDdowload("US.H8.Cash"),
+#                                                    misc.FREDdowload("US.H8.TradingAssets")
+# ))
+# 
+# BankData    <- BankData[index(BankData) > Sys.Date() - years(15)]
+# plot.col    <- brewer.pal(ncol(BankData), "Paired")
+# plot.legend <- c("Securities", "Loans and Leases", "Interbank Loans", "Cash", "Trading Assets")
+# barplot(BankData, col = plot.col, border="NA", main = "All US Commercial Banks' Balance Sheets: \n Main Categories", ylab = "$bn")
+# legend("topleft", plot.legend, fill = plot.col, cex=0.75)
+# 
+
+
+
+# Friday: Interest rate chart
+InterestRate.Chart(Data.Rates = Reduce(function(...) merge(...), list( misc.FREDdowload("US.SOV.1Y"), 
+                                                                       misc.FREDdowload("US.SOV.2Y"), 
+                                                                       misc.FREDdowload("US.SOV.3Y"), 
+                                                                       misc.FREDdowload("US.SOV.5Y"), 
+                                                                       misc.FREDdowload("US.SOV.7Y"), 
+                                                                       misc.FREDdowload("US.SOV.10Y") )), 
+                   tweet = (weekdays(Sys.Date()) == "Friday"))
+
+
+
+# ----------------
+
+# ----------------
 
 # GDP Release
 
@@ -546,26 +647,32 @@ Chart.Duo(series1="US.Activity.RetailSales", series2="US.Activity.RetailSalesExA
 
 # Labor Market
 
-if ( as.Date( as.character(tail( fredr_release_dates(release_id = 192L) ,1)[,2]) ) == Sys.Date() ) {
-  
   Chart.Single(series="US.JOLTS.QuitsRate",
                periods = 25,
-               tweet = ( as.Date( as.character(tail( fredr_release_dates(release_id = 199L) ,1)[,2]) ) == Sys.Date() ),  
+               tweet = ( as.Date( as.character(tail( fredr_release_dates(release_id = 192L) ,1)[,2]) ) == Sys.Date() ),  
                tweet.text = "#JOLTS update: Quits rate #rstats")
   
   Chart.Single(series="US.JOLTS.HireRate",
                periods = 25,
-               tweet = ( as.Date( as.character(tail( fredr_release_dates(release_id = 199L) ,1)[,2]) ) == Sys.Date() ),  
+               tweet = ( as.Date( as.character(tail( fredr_release_dates(release_id = 192L) ,1)[,2]) ) == Sys.Date() ),  
                tweet.text = "#JOLTS update: Hire rate #rstats")
   
   Chart.Single(series="US.JOLTS.JobOpeningsRate",
                periods = 25,
-               tweet = ( as.Date( as.character(tail( fredr_release_dates(release_id = 199L) ,1)[,2]) ) == Sys.Date() ),  
+               tweet = ( as.Date( as.character(tail( fredr_release_dates(release_id = 192L) ,1)[,2]) ) == Sys.Date() ),  
                tweet.text = "#JOLTS update: Rate of job openings #rstats")
   
-}
+  # Chart.Single(series="US.Activity.ADP",
+  #              periods = 25,
+  #              tweet = ( as.Date( as.character(tail( fredr_release_dates(release_id = 194L) ,1)[,2]) ) == Sys.Date() ),  
+  #              tweet.text = "#JOLTS update: Quits rate #rstats")
+  
+  Chart.Duo(series1="US.Activity.InitialClaims", series2="US.Activity.ContinuedClaims.4W.MA",
+            periods = 25,
+            tweet = ( as.Date( as.character(tail( fredr_release_dates(release_id = 180L) ,1)[,2]) ) == Sys.Date() ),  
+            tweet.text = "Initial and continued claims (source: FRED) #rstats")
 
-
+  
 if ( as.Date( as.character(tail( fredr_release_dates(release_id = 50L) ,1)[,2]) ) == Sys.Date() ) {
   
   tmp <- tempfile(fileext = ".png")
@@ -624,12 +731,73 @@ Chart.Duo(series1="US.Auto.Autosales", series2="US.Auto.InventorySalesRatio",
 
 
 
-# Commodities
+# Banking
 
-Chart.Duo(series1="US.GasPrices", series2="US.Commodities.Oilprices",
-          periods = 25,
-          tweet = (weekdays(Sys.Date()) == "Monday"),
-          tweet.text = "Paying more for #gas? Weighted average gas prices based on sampling of approx. 900 outlets. #inflation #rstats")
+Chart.Duo(series1="US.FDIC.NetChargeOffRateTotalLoans", series2="US.FDIC.LoanLossProvisions",
+          periods = 35,
+          tweet = ( as.Date( as.character(tail( fredr_release_dates(release_id = 482L) ,1)[,2]) ) == Sys.Date() ),  
+          tweet.text = paste0("Banking Update: Net Charge-Off Rates at ", 
+                              round( tail(US.FDIC.NetChargeOffRateTotalLoans,1), 2),
+                              "%, ",
+                              ifelse( (as.numeric(tail(US.FDIC.NetChargeOffRateTotalLoans,1)) - as.numeric(tail(US.FDIC.NetChargeOffRateTotalLoans,2)[1]) > 0 ),
+                                      "up ", "down "),
+                              round( as.numeric(tail(US.FDIC.NetChargeOffRateTotalLoans,1)) - as.numeric(tail(US.FDIC.NetChargeOffRateTotalLoans,2)[1]), 2),
+                              "p.p. from last Quarter  (source: FRED) #rstats") 
+)
+
+Chart.Duo(series1="US.FDIC.InstitutionsWithEarningsGain", series2="US.FDIC.UnprofitableInstitutions",
+          periods = 35,
+          tweet = ( as.Date( as.character(tail( fredr_release_dates(release_id = 482L) ,1)[,2]) ) == Sys.Date() ),  
+          tweet.text = paste0("Banking Update: Number of Unprofitable Institutions at ", 
+                              round( tail(US.FDIC.UnprofitableInstitutions,1), 2),
+                              ", ",
+                              ifelse( (as.numeric(tail(US.FDIC.UnprofitableInstitutions,1)) - as.numeric(tail(US.FDIC.UnprofitableInstitutions,2)[1]) > 0 ),
+                                      "up ", "down "),
+                              round( as.numeric(tail(US.FDIC.UnprofitableInstitutions,1)) - as.numeric(tail(US.FDIC.UnprofitableInstitutions,2)[1]), 2),
+                              " from last Quarter  (source: FRED) #rstats") 
+)
+
+
+if  ( as.Date( as.character(tail( fredr_release_dates(release_id = 22L) ,1)[,2]) ) == Sys.Date() ) {
+  
+  BankData.Details  <- merge(US.H8.BanksCredit.Other=misc.FREDdowload("US.H8.BanksCredit.Other"),
+                             US.H8.BanksCredit.Securities.Other=misc.FREDdowload("US.H8.BanksCredit.Securities.Other"),
+                             US.H8.TradingAssets=misc.FREDdowload("US.H8.TradingAssets"),
+                             US.H8.InterBankLoans=misc.FREDdowload("US.H8.InterBankLoans"),
+                             US.H8.FedFundsSold=misc.FREDdowload("US.H8.FedFundsSold"),
+                             US.H8.BanksCredit.CI=misc.FREDdowload("US.H8.BanksCredit.CI"),
+                             US.H8.BanksCredit.RE=misc.FREDdowload("US.H8.BanksCredit.RE"),
+                             US.H8.BanksCredit.Consumer=misc.FREDdowload("US.H8.BanksCredit.Consumer"),
+                             US.H8.Cash=misc.FREDdowload("US.H8.Cash"),
+                             US.H8.BanksCredit.Securities.Treasuries = misc.FREDdowload("US.H8.BanksCredit.Securities.Treasuries")
+  )
+  
+  BankData.Details  <- BankData.Details[index(BankData.Details) > Sys.Date() - years(7)]
+  
+  plot.col    <- brewer.pal(10, "Paired")
+  plot.legend = character()
+  for (idx in 1:ncol(BankData.Details)) plot.legend <- c(plot.legend, Data.Description[Data.Description$Mnemonic == colnames(BankData.Details)[idx],3])
+  plot.legend <- gsub(", All Commercial Banks", "", plot.legend)
+  plot.ylim = c(0, 1.1*max(rowSums(BankData.Details)))
+  
+  tmp <- tempfile(fileext = ".png")
+  png(tmp, 12, 12, "in", res = 127.5)  
+  
+  BankDataChart=barplot(BankData.Details, col = plot.col, 
+                        border="NA", 
+                        main = "All Commercial Bank's Balance Sheets: \n Weekly Bank Credit by Loan Type", 
+                        xaxt = "n",
+                        ylim = plot.ylim)
+  axis(1, at=BankDataChart[week(index(BankData.Details))==25], 
+       label = year(index(BankData.Details))[week(index(BankData.Details))==25],
+       col.axis="black", cex.axis=1)
+  abline(v = BankDataChart[week(index(BankData.Details)) ==1], lty = 2)
+  abline(h=0, lwd=4)
+  legend("topleft", plot.legend, fill = plot.col, cex=0.75)
+  
+  dev.off()
+  post_tweet("Increase in Bank Balance Sheets Post-Pandemic Mostly Driven by Higher Cash and Treasuries/Agencies #BankLending #rstats", media = tmp)
+}
 
 
 
@@ -652,11 +820,15 @@ Chart.Duo(series1="US.Transportation.Rail", series2="US.Transportation.Index",
 
 
 
-#Tweet the interest rate chart every Friday
-InterestRate.Chart(Data.Rates = Reduce(function(...) merge(...), list( misc.FREDdowload("US.SOV.1Y"), 
-                                                                       misc.FREDdowload("US.SOV.2Y"), 
-                                                                       misc.FREDdowload("US.SOV.3Y"), 
-                                                                       misc.FREDdowload("US.SOV.5Y"), 
-                                                                       misc.FREDdowload("US.SOV.7Y"), 
-                                                                       misc.FREDdowload("US.SOV.10Y") )), 
-                   tweet = (weekdays(Sys.Date()) == "Friday"))
+# Real GDP
+GDP.Comparison.Data <- merge(US = misc.FREDdowload("US.GDP.Real"),
+                             EU = misc.FREDdowload("EU.GDP.Real"),
+                             UK = misc.FREDdowload("UK.GDP.Real"),
+                             JP = misc.FREDdowload("JP.GDP.Real"),
+                             CA = misc.FREDdowload("CA.GDP.Real") )
+
+GDP.Comparison.Data <- GDP.Comparison.Data[index(GDP.Comparison.Data)>= as.Date("2019-09-01"),]
+
+
+
+Evolution.Chart(Evolution.Data = GDP.Comparison.Data, tweet=FALSE)
