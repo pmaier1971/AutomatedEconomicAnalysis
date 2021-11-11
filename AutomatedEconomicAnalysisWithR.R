@@ -26,7 +26,6 @@ pkgTest("tm")
 pkgTest("gmailr")
 pkgTest("COVID19")
 
-setwd("~/Documents/R/")
 
 # Startup - Online? --------------------------------------------------------------------------------------------------------
 
@@ -36,6 +35,8 @@ rm(list=ls()) # do we need it? replace with: rm(test.online) ?
 
 
 # Startup - Email setup and credentials -------------------------------------------------------------
+
+setwd("~/Documents/R/")
 
 # replace with your own email info
 email <- gm_mime()
