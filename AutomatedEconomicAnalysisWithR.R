@@ -29,14 +29,10 @@ pkgTest("COVID19")
 setwd("~/Documents/R/")
 
 # Startup - Online? --------------------------------------------------------------------------------------------------------
-# Test that FRED is online 
-test.online        <- try(getSymbols("GDPC1",src='FRED'))
 
-if ((inherits(test.online, "try-error"))) {
-  stop("\n\n\n----------\n Not online \n----------\n\n")
-}
-
-rm(list=ls())
+test.online <- !inherits(try(quantmod::getSymbols("GDPC1",src='FRED')), "try-error") # Test that FRED is online
+stopifnot(test.online)
+rm(list=ls()) # do we need it? replace with: rm(test.online) ?
 
 
 # Startup - Email setup and credentials -------------------------------------------------------------
