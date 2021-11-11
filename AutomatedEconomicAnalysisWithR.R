@@ -1,5 +1,7 @@
 #!/usr/bin/R
 
+# Startup - Packages --------------------------------------------------------------------------------------------------------
+
 pkgTest <- function(x){
   if (!require(x,character.only = TRUE)) {
     install.packages(x,dep=TRUE)
@@ -26,7 +28,8 @@ pkgTest("COVID19")
 
 setwd("~/Documents/R/")
 
-# Test that FRED is online ####
+# Startup - Online? --------------------------------------------------------------------------------------------------------
+# Test that FRED is online 
 test.online        <- try(getSymbols("GDPC1",src='FRED'))
 
 if ((inherits(test.online, "try-error"))) {
@@ -36,8 +39,7 @@ if ((inherits(test.online, "try-error"))) {
 rm(list=ls())
 
 
-
-# Email setup and credentials -------------------------------------------------------------
+# Startup - Email setup and credentials -------------------------------------------------------------
 
 # replace with your own email info
 email <- gm_mime()
@@ -49,7 +51,7 @@ FRED_API_KEY <- ""  # put your own FRED API key here
 source("Credentials.R")   # file where MY credentials for Fred, Twitter, and Gmail are stored
 fredr_set_key(FRED_API_KEY)
 
-# Data Download -------------------------------------------------------------
+# Data Download - Definitions -------------------------------------------------------------
 
 Data.US <- c("US.GDP.Real"="GDPC1", 
              "US.GDP.PCE"="PCECC96",
@@ -204,6 +206,7 @@ Data.US <- c("US.GDP.Real"="GDPC1",
              
 )
 
+# Data Download - Description -------------------------------------------------------------
 
 Data.Description <- data.frame( 
   Mnemonic = names(Data.US), 
@@ -227,7 +230,7 @@ for ( idx in 1:nrow(Data.Description) ) {
 }
 
 
-# Misc. functions ---------------------------------------------------------
+# Functions - Misc. ---------------------------------------------------------
 
 misc.FREDdowload <- function(series) {
   
@@ -260,7 +263,7 @@ misc.NBER.Recessions <- function(){
 }
 
 
-# Charting functions ---------------------------------------------------------
+# Functions - Charting ---------------------------------------------------------
 
 misc.GDPExpansionPlot <- function( series ){
   
@@ -628,10 +631,7 @@ Chart.DoublePanel <- function(series1, series2, periods) {
   
 }
 
-
-
-
-# Weekly Update -----------------------------------------------------------
+# EXE - Tweet - Weekly Update -----------------------------------------------------------
 
 # Tuesday: Gas Prices
 Chart.Duo(series1="US.GasPrices", series2="US.Commodities.Oilprices",
@@ -685,7 +685,7 @@ InterestRate.Chart(Data.Rates = Reduce(function(...) merge(...), list( misc.FRED
 
 
 
-# GDP Releases -------------------------------------------------------
+# EXE - Tweet - GDP Releases -------------------------------------------------------
 
 
 if ( ( as.Date( as.character(tail( fredr_release_dates(release_id = 53L) ,1)[,2]) ) == Sys.Date() ) ||
@@ -720,7 +720,7 @@ if ( ( as.Date( as.character(tail( fredr_release_dates(release_id = 53L) ,1)[,2]
 }
 
 
-# Activity Measures -------------------------------------------------------
+# EXE - Tweet - Activity Measures -------------------------------------------------------
 
 
 Chart.Duo(series1="US.Activity.RetailSales", series2="US.Activity.RetailSalesExAuto",
@@ -778,12 +778,7 @@ Chart.Duo(series1="US.Activity.RetailSalesSportsGoods", series2="US.Activity.Ret
           tweet.text = "Bought a #Peleton During the Pandemic? Sales of #SportingGoods Skyrocketed in 2021. https://bit.ly/3BXLMFM #AdvanceRetailSales #rstats",
           email=email)
 
-
-
-
-
-
-# Labor Market -------------------------------------------------------
+# EXE - Tweet - Labor Market -------------------------------------------------------
 
 
   Chart.Single(series="US.JOLTS.QuitsRate",
@@ -841,7 +836,7 @@ Chart.Four(series1 = "US.Unemployment.EmploymentToPopulation",
            email = email)
 
 
-# Inflation -------------------------------------------------------
+# EXE - Tweet - Inflation -------------------------------------------------------
 
 Chart.Single(series = "US.CPI.Headline.mm.yy", 
              period = 25,
@@ -898,7 +893,7 @@ Chart.Duo(series1="US.CPI.AlcoholicBeverages.mm.yy", series2="US.CPI.AlcoholicBe
 
 
 
-# Housing -------------------------------------------------------
+# EXE - Tweet - Housing -------------------------------------------------------
 
 Chart.Single(series="US.Housing.CaseShiller",
              periods = 25,
@@ -922,7 +917,7 @@ Chart.Single(series="US.Survey.Empire",
 
 
 
-# Motor Vehicles -------------------------------------------------------
+# EXE - Tweet - Motor Vehicles -------------------------------------------------------
 
 Chart.Duo(series1="US.Auto.Autosales", series2="US.Auto.InventorySalesRatio",
           periods = 25,
@@ -952,7 +947,7 @@ if ( as.Date( as.character(tail( fredr_release_dates(release_id = 93L) ,1)[,2]) 
 }
 
 
-# Banking Sector -------------------------------------------------------
+# EXE - Tweet - Banking Sector -------------------------------------------------------
 
 Chart.Duo(series1="US.FDIC.NetChargeOffRateTotalLoans", series2="US.FDIC.LoanLossProvisions",
           periods = 35,
@@ -1090,7 +1085,7 @@ if ( Data.Description[Data.Description$Mnemonic == "US.SLOOS.AutoLoansStandards"
 }
 
 
-# Transportation -------------------------------------------------------
+# EXE - Tweet - Transportation -------------------------------------------------------
 
 if ( Data.Description[Data.Description$Mnemonic == "US.Transportation.Air",6] == Sys.Date()  )
   Chart.Four(series1="US.Transportation.Air", 
@@ -1111,7 +1106,7 @@ if ( Data.Description[Data.Description$Mnemonic == "US.Transportation.Rail",6] =
             email=email)
 
 
-# COVID -------------------------------------------------------
+# EXE - Tweet - COVID -------------------------------------------------------
 
 if (weekdays(Sys.Date()) %in% c("Tuesday", "Thursday", "Sunday")) {
   
@@ -1140,5 +1135,7 @@ if (weekdays(Sys.Date()) %in% c("Tuesday", "Thursday", "Sunday")) {
   post_tweet("Update on daily #COVID19 cases in the 6 largest economies #rstats", media = chart.filename)
 }
 
+
+# EXE - Email -----------------------------------------------------------------------------------------------------------------
 
 gm_send_message(email)
