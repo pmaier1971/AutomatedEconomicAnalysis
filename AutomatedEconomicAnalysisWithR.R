@@ -1,10 +1,17 @@
 #!/usr/bin/R
 
+if (file.exists("EconomicAnalsysiUsingR.log")) file.remove("EconomicAnalsysiUsingR.log")
+
+
 pkgTest <- function(x){
-  if (!require(x,character.only = TRUE)) {
-    install.packages(x,dep=TRUE)
-    if(!require(x,character.only = TRUE)) stop("Package not found")
-  }
+  suppressMessages(
+    suppressWarnings(
+      if (!require(x,character.only = TRUE)) {
+        install.packages(x,dep=TRUE)
+        if(!require(x,character.only = TRUE)) stop("Package not found")
+      }
+    )
+  )
 }
 
 pkgTest("fredr")
@@ -27,7 +34,7 @@ pkgTest("COVID19")
 setwd("~/Documents/R/")
 
 # Test that FRED is online ####
-test.online        <- try(getSymbols("GDPC1",src='FRED'))
+suppressMessages( test.online        <- try(getSymbols("GDPC1",src='FRED')) )
 
 if ((inherits(test.online, "try-error"))) {
   stop("\n\n\n----------\n Not online \n----------\n\n")
@@ -52,7 +59,7 @@ fredr_set_key(FRED_API_KEY)
 # Data Download -------------------------------------------------------------
 
 Data.US <- c("US.GDP.Real"="GDPC1", 
-             
+             "US.GDP.Real.annualizedqq"="A191RL1Q225SBEA", 
              "US.GDP.PCE"="PCECC96",
              "US.GDP.PCE.Goods"="DGDSRX1Q020SBEA",
              "US.GDP.PCE.DurableGoods"="PCDGCC96",
@@ -81,7 +88,7 @@ Data.US <- c("US.GDP.Real"="GDPC1",
              "US.Activity.ChicagoFed" = "CFNAI",
              "US.Activity.NYFed.Current" = "GACDISA066MSFRBNY",
              "US.Activity.NYFed.Leading" = "GAFDISA066MSFRBNY",
-            
+
              "US.Activity.RetailSales" = "RSAFS",
              "US.Activity.RetailSalesExAuto" = "RSFSXMV",
              "US.Activity.RetailSalesMotorvehicles" = "RSMVPD",
@@ -97,12 +104,14 @@ Data.US <- c("US.GDP.Real"="GDPC1",
              "US.Activity.RetailSalesBuildingMaterials" = "RSBMGESD",
              "US.Activity.RetailSalesClothing" = "RSCCAS",
              "US.Activity.RetailSalesFoodDrinking" = "RSFSDP",
+             "US.Activity.ECommerceAsShareOfRetail" = "ECOMPCTSA",
              
              "US.Activity.ADP" = "NPPTTL",
              "US.Activity.InitialClaims" = "ICSA",
              "US.Activity.ContinuedClaims.4W.MA" = "CC4WSA",
              "US.Activity.ContinuedClaims" = "CCSA",
              "US.JOLTS.QuitsRate" = "JTSQUR",
+             "US.JOLTS.QuitsNumber" = "JTSQUL",
              "US.JOLTS.HireRate" = "JTSHIR",
              "US.JOLTS.JobOpeningsRate" ="JTSJOR",
              "US.Unemployment.WageGrowth" = "CES0500000003",
@@ -245,6 +254,20 @@ for ( idx in 1:nrow(Data.Description) ) {
 }
 
 
+cat("\n---------------------------------------------------\n")
+cat("Built the data DB\n")
+cat("---------------------------------------------------\n")
+
+# Download most recent tweets
+tweet.DB = data.frame( get_timeline("EconomicsShiny", n = 50) )
+tweet.DB$text = sapply(strsplit(tweet.DB$text, split='http', fixed=TRUE), function(x) (x[1])) # remove all hyperlinks in the DB, since they get shortened
+
+cat("\n---------------------------------------------------\n")
+cat("Built the Twitter DB\n")
+cat("---------------------------------------------------\n")
+
+
+
 # Misc. functions ---------------------------------------------------------
 
 misc.FREDdowload <- function(series) {
@@ -275,6 +298,17 @@ misc.NBER.Recessions <- function(){
   for (idx in seq(1, length(NBER.Recessions), 2) ) {
     rect(NBER.Recessions[idx], Limits[3], NBER.Recessions[idx+1], Limits[4], col="#0000FF19", lty=0)
   }
+}
+
+misc.postTweet <- function( tweet.text, media ){
+  
+  tweet.check = strsplit(tweet.text, split = "http", fixed = TRUE)[[1]][1]
+  tweet.time  = tweet.DB[tweet.DB$text == tweet.check, "created_at"]
+  
+  if (length(tweet.time) == 0 || (tweet.time - Sys.time() > hours(24))) {
+    post_tweet(status = tweet.text, media = media) 
+    Sys.sleep(45)
+  } else cat("\n\nThe following tweet has already been posted: \n  -", tweet.text, "\n")
 }
 
 
@@ -368,6 +402,9 @@ Chart.Panel <- function(x, series) {
   plot(as.zoo(x), main = chart.title, 
        col = chart.col, 
        lwd = 3, 
+       cex = 1.3,
+       cex.axis = 1.3,
+       cex.lab = 1.3,
        ylim = chart.ylim,
        ylab = Data.Description[grep(series, Data.Description[,1]),5],
        xlab = paste0("Period: ", year(index(x[1])), " - ", year(index(tail(x[1]))), " (shaded areas indicate U.S. recessions)"))
@@ -376,9 +413,9 @@ Chart.Panel <- function(x, series) {
   abline(v = as.Date(paste0(seq( year(index(x[1])), year(Sys.Date()), 1), "-01-01")), lty = 3, lwd = 0.5)
   misc.NBER.Recessions()
   
-  text(index(tail(x,round(.15*length(x)))[1]), 1.1*tail(x,1), paste("Latest obs.\n", round(tail(x,1),2)), font = 2)
+  text(index(tail(x,round(.15*length(x)))[1]), 1.05*tail(x,1), paste("Latest obs.\n", round(tail(x,1),2)), font = 2, cex = 1.3)
   grid()
-  legend("bottomleft", "Data: St. Louis FRED", cex=.7)
+  legend("bottomleft", "Data: St. Louis FRED", cex=.9)
   
 }
 
@@ -394,8 +431,8 @@ Chart.Single <- function(series, periods, tweet = FALSE, tweet.text = "", email)
   Chart.Panel(x = x, series = series)
 
   dev.off()
-  email <<- gm_attach_file(email, chart.filename)
-  if (tweet) post_tweet(tweet.text, media = chart.filename)
+  if (tweet) email <<- gm_attach_file(email, chart.filename)
+  if (tweet) misc.postTweet(tweet.text, media = chart.filename)
   
 }
 
@@ -412,54 +449,15 @@ Chart.Duo <- function(series1, series2, periods, tweet = FALSE, tweet.text = "",
     png(filename=chart.filename, 24, 12, "in", res=127.5)
     
     par(mfrow=c(1,2))
-    chart.col   = brewer.pal(6, "Paired")[6]
-    chart.ylim  = c(0.9*range(x1, na.rm=TRUE)[1], 1.1*range(x1, na.rm=TRUE)[2])
-    chart.title = Data.Description[Data.Description$Mnemonic == series1,3]
-    
-    plot(as.zoo(x1), main = chart.title, 
-         col = chart.col, 
-         lwd = 3, 
-         ylim = chart.ylim,
-         #ylab = "Source: FRED, Federal Reserve Bank of St. Louis",
-         ylab = ifelse ( substr(series1, (nchar(series1)-5), nchar(series1)) == ".qq.yy", "Y/Y growth (in %)", Data.Description[grep(series1, Data.Description[,1]),5]),
-         xlab = paste0("Period: ", year(index(x1[1])), " - ", year(index(tail(x1,1))), " (shaded areas indicate U.S. recessions)"))
-    points( index(tail(x1, 1)), tail(x1,1), col = chart.col, pch = 19, lwd = 5)
-    abline(v = as.Date(paste0(seq( year(index(x1[1])), year(Sys.Date()), 1), "-01-01")), lty = 3, lwd = 0.5)
-    misc.NBER.Recessions()
-    
-    text(index(tail(x1,round(.15*length(x1)))[1]), 1.1*tail(x1,1), 
-         ifelse ( substr(series1, (nchar(series1)-5), nchar(series1)) == ".qq.yy", 
-                  paste("Latest obs.\n", round(tail(x1,1),2),"%"),
-                  paste("Latest obs.\n", round(tail(x1,1),2))), font = 2)
-    grid()
-    legend("bottomleft", "Data: St. Louis FRED", cex=.6)
-    
-    chart.col   = brewer.pal(6, "Paired")[6]
-    chart.ylim  = c(0.9*range(x2, na.rm=TRUE)[1], 1.1*range(x2, na.rm=TRUE)[2])
-    chart.title = Data.Description[Data.Description$Mnemonic == series2, 3]
-    
-    plot(as.zoo(x2), main = chart.title, 
-         col = chart.col, 
-         lwd = 3, 
-         ylim = chart.ylim,
-         ylab = ifelse ( substr(series2, (nchar(series2)-5), nchar(series2)) == ".qq.yy", "Y/Y growth (in %)", Data.Description[grep(series2, Data.Description[,1]),5]),
-         xlab = paste0("Period: ", year(index(x2[1])), " - ", year(index(tail(x2,1))), " (shaded areas indicate U.S. recessions)"))
-    points( index(tail(x2, 1)), tail(x2,1), col = chart.col, pch = 19, lwd = 5)
-    abline(v = as.Date(paste0(seq( year(index(x2[1])), year(Sys.Date()), 1), "-01-01")), lty = 3, lwd = 0.5)
-    misc.NBER.Recessions()
-    
-    text(index(tail(x2,round(.15*length(x2)))[1]), 1.1*tail(x2,1), 
-         ifelse ( substr(series2, (nchar(series2)-5), nchar(series2)) == ".qq.yy",
-                  paste("Latest obs.\n", round(tail(x2,1),2),"%"),
-                  paste("Latest obs.\n", round(tail(x2,1),2))), font = 2)
-    grid()
-    legend("bottomleft", "Data: St. Louis FRED", cex=.6)
+
+    Chart.Panel(x = x1, series = series1)
+    Chart.Panel(x = x2, series = series2)
     
     par(mfrow=c(1,1))
    
     dev.off()
-    email <<- gm_attach_file(email, chart.filename)
-    if (tweet) post_tweet(tweet.text, media = chart.filename)
+    if (tweet) email <<- gm_attach_file(email, chart.filename)
+    if (tweet) misc.postTweet(tweet.text, media = chart.filename)
     
 }
 
@@ -488,8 +486,8 @@ Chart.Four <- function(series1, series2, series3, series4, periods, tweet = FALS
 
   par(mfrow=c(1,1))
   dev.off()
-  email <<- gm_attach_file(email, chart.filename)
-  if (tweet) post_tweet(tweet.text, media = chart.filename)
+  if (tweet) email <<- gm_attach_file(email, chart.filename)
+  if (tweet) misc.postTweet(tweet.text, media = chart.filename)
   
 }
 
@@ -524,13 +522,13 @@ Chart.InflationOverview <- function(series,tweet = FALSE, tweet.text = "", email
   legend("bottomleft", "Data: St. Louis FRED", cex=.5)
   dev.off()
   
-  email <<- gm_attach_file(email, chart.filename)
-  if (tweet) post_tweet(tweet.text, media = chart.filename)
+  if (tweet) email <<- gm_attach_file(email, chart.filename)
+  if (tweet) misc.postTweet(tweet.text, media = chart.filename)
   
 }
 
 
-InterestRate.Chart <- function(Data.Rates, tweet = FALSE, email) {
+InterestRate.Chart <- function(Data.Rates, tweet = FALSE, tweet.text, email) {
   Data.Rates.dim <- length(colnames(Data.Rates))
   Data.Rates[,2:Data.Rates.dim] <- Data.Rates[,2:Data.Rates.dim] - Data.Rates[,1:(Data.Rates.dim-1)]
   
@@ -546,26 +544,26 @@ InterestRate.Chart <- function(Data.Rates, tweet = FALSE, email) {
   
  
   chart.filename = "US.Rates.Daily.png"
-  png(filename=chart.filename, 24, 24, "in", res=127.5)
+  png(filename=chart.filename, 18, 18, "in", res=127.5)
   
   par(mfrow = c(2,1))
   
   chart.col = brewer.pal(Data.Rates.dim, "Paired")
-  barplot(na.omit(Data.Rates.D), col=chart.col, cex.main=0.75, cex.names = 0.75, border=NA, 
+  barplot(na.omit(Data.Rates.D), col=chart.col, cex.main=1.5, cex.names = 1.25, border=NA, 
           main="Treasury Rates (Constant Maturity, Daily Yields in %):\n Changes in the last month")
   grid(col="black")
-  legend("bottomleft", Data.Rates.Names, fill=chart.col, cex=0.75)
+  legend("bottomleft", Data.Rates.Names, fill=chart.col, cex=1)
   
-  barplot(Data.Rates.M, col=chart.col, cex.main=0.75, cex.names = 0.75, border=NA, #las=2,
+  barplot(Data.Rates.M, col=chart.col, cex.main=1.5, cex.names = 1, border=NA, #las=2,
           main="Treasury Rates (Constant Maturity, Monthly Average Yield in %):\n Evolution over the past 5 years")
   grid(col="black")
-  legend("bottomleft", Data.Rates.Names, fill=chart.col, cex=0.75)
+  legend("bottomleft", Data.Rates.Names, fill=chart.col, cex=1)
   
   par(mfrow = c(1,1))
   
   dev.off()
-  email <<- gm_attach_file(email, chart.filename)
-  if (tweet) post_tweet(tweet.text, media = chart.filename)
+  if (tweet) email <<- gm_attach_file(email, chart.filename)
+  if (tweet) misc.postTweet(tweet.text, media = chart.filename)
   
 }
 
@@ -609,8 +607,8 @@ Evolution.Chart <- function(Evolution.Data, tweet = FALSE, email){
   legend("bottomleft", "Data: St. Louis FRED", cex=.5)
   
   dev.off()
-  email <<- gm_attach_file(email, chart.filename)
-  if (tweet) post_tweet("Who Recovers Faster? Comparing The #Recovery Since the OutSet of the Pandemic Across Major Industrialized Countries #rstats", media = chart.filename)
+  if (tweet) email <<- gm_attach_file(email, chart.filename)
+  if (tweet) misc.postTweet("Who Recovers Faster? Comparing The #Recovery Since the OutSet of the Pandemic Across Major Industrialized Countries #rstats", media = chart.filename)
 }
 
 
@@ -643,15 +641,64 @@ Chart.DoublePanel <- function(series1, series2, periods) {
   
   grid()
   legend("bottomleft", "Data: St. Louis FRED", cex=.5)
-  
 }
 
+
+cat("\n---------------------------------------------------\n")
+cat("Data and charting functions loaded\n")
+cat("---------------------------------------------------\n")
 
 
 
 # Weekly Update -----------------------------------------------------------
 
 Sys.sleep(45)
+
+#Monday: Bank Balance Sheet Data
+
+if ((weekdays(Sys.Date()) == "Monday") ) {
+  
+  BankData <- Reduce(function(...) merge(...), list( misc.FREDdowload("US.H8.BanksCredit.Securities"),
+                                                     misc.FREDdowload("US.H8.BanksCredit.LoansLeases"),
+                                                     misc.FREDdowload("US.H8.InterBankLoans"),
+                                                     misc.FREDdowload("US.H8.Cash"),
+                                                     misc.FREDdowload("US.H8.TradingAssets")
+  ))
+  
+  BankData    <- BankData[index(BankData) > Sys.Date() - years(35)]
+  
+  chart.filename = paste0("BankBalanceSheets.png")
+  png(filename = chart.filename, 18, 12, "in", res = 127.5 )
+  
+  plot.col    <- brewer.pal(ncol(BankData), "Paired")
+  plot.legend <- c("Securities", "Loans and Leases", "Interbank Loans", "Cash", "Trading Assets")
+  x.plot = barplot(BankData, col = plot.col, border="NA", main = "Long-term view US Commercial Banks' Balance Sheets: \n Main Asset Categories", 
+                   xlab = paste0("Period: ",
+                                 year(Sys.Date() - years(25)), " - ", year(Sys.Date()),
+                                 " (shaded areas indicate U.S. recessions)"), ylab = "$bn", xaxt = "n")
+  axis(1, at = x.plot[(week(index(BankData)) %in% c(1, 25))], 
+       labels = as.yearmon(index(BankData))[(week(index(BankData)) %in% c(1, 35))])
+  
+  limits = par('usr')
+  
+  NBER.Recessions = as.Date(as.character(t(nberDates())), format="%Y%m%d")
+  NBER.Recessions = NBER.Recessions[as.Date(NBER.Recessions) > Sys.Date() - years(35)]
+  plot.Limits <- par('usr')
+  for (idx in seq(1, length(NBER.Recessions), 2) ) rect(x.plot[grep(as.yearmon(NBER.Recessions[idx]), as.yearmon(index(BankData)))], 
+                                                        plot.Limits[3], 
+                                                        x.plot[grep(as.yearmon(NBER.Recessions[idx+1]), as.yearmon(index(BankData)))], 
+                                                        plot.Limits[4], col=rgb(0, 0, 255, max = 255, alpha = 5, names = "blue50"), lty=0)
+  legend("bottomleft", "Data: St. Louis FRED", cex=.8)
+  legend("topleft", plot.legend, fill = plot.col, cex=0.75)
+  dev.off()
+  
+  email <<- gm_attach_file(email, chart.filename)
+  
+  tweet.text = "#CommercialBanks #BalanceSheets: Longer-term view, spanning multiple economic cycles #rstats"
+  misc.postTweet(tweet.text, media = chart.filename) 
+}
+
+
 
 # Tuesday: Gas Prices
 Chart.Duo(series1="US.GasPrices", series2="US.Commodities.Oilprices",
@@ -660,7 +707,7 @@ Chart.Duo(series1="US.GasPrices", series2="US.Commodities.Oilprices",
           tweet.text = paste0("Paying more for #gas? Weighted av. gas prices currently at $", 
                               round( tail(US.GasPrices,1), 2),
                               ". Relative to 12 months ago, this is a $", 
-                              round( as.numeric(tail(US.GasPrices,2)) - as.numeric(tail(US.GasPrices,53)[1]), 2),
+                              round( as.numeric(tail(US.GasPrices,1)) - as.numeric(tail(US.GasPrices,53)[1]), 2),
                               ifelse( round( as.numeric(tail(US.GasPrices,1)) - as.numeric(tail(US.GasPrices,53)[1]), 2), 
                                       " increase.  #rstats", " decrease. #inflation #rstats")),
                               email=email)
@@ -692,32 +739,14 @@ if ((weekdays(Sys.Date()) == "Wednesday") ) {
   dev.off()
   email <<- gm_attach_file(email, chart.filename)
   
-  tweet.text = paste0("Uncertainty Upate: VIX at ", as.numeric( tail(US.VIX,1) ),"; 7-day average of the Economic Policy Uncertainty Index at ",
+  tweet.text = paste0("Uncertainty Update: VIX at ", as.numeric( tail(US.VIX,1) ),"; 7-day average of the Economic Policy Uncertainty Index at ",
                       round( as.numeric( tail(rollmean(x, k = 7, align = "right"),1) ),1),
                       ", ", 
                       ifelse(tail(diff(rollmean(x, k = 7, align = "right")),1)>0, "up ", "down "),
                       round( tail(diff(rollmean(x, k = 7, align = "right")),1),1), " from the prior week #MarketVolatility #EconomicUncertainty #rstats https://whyitmatters.netlify.app/posts/2021-11-11-measures-of-economic-uncertainty-and-market-volatility/")
-  post_tweet(tweet.text, media = chart.filename)
+  misc.postTweet(tweet.text, media = chart.filename)
   
 }
-
-
-
-#Thursday: Bank Balance Sheet Data
-
-# BankData <- Reduce(function(...) merge(...), list( misc.FREDdowload("US.H8.BanksCredit.Securities"),
-#                                                    misc.FREDdowload("US.H8.BanksCredit.LoansLeases"),
-#                                                    misc.FREDdowload("US.H8.InterBankLoans"),
-#                                                    misc.FREDdowload("US.H8.Cash"),
-#                                                    misc.FREDdowload("US.H8.TradingAssets")
-# ))
-# 
-# BankData    <- BankData[index(BankData) > Sys.Date() - years(15)]
-# plot.col    <- brewer.pal(ncol(BankData), "Paired")
-# plot.legend <- c("Securities", "Loans and Leases", "Interbank Loans", "Cash", "Trading Assets")
-# barplot(BankData, col = plot.col, border="NA", main = "All US Commercial Banks' Balance Sheets: \n Main Categories", ylab = "$bn")
-# legend("topleft", plot.legend, fill = plot.col, cex=0.75)
-# 
 
 
 
@@ -729,21 +758,42 @@ InterestRate.Chart(Data.Rates = Reduce(function(...) merge(...), list( misc.FRED
                                                                        misc.FREDdowload("US.SOV.7Y"), 
                                                                        misc.FREDdowload("US.SOV.10Y") )), 
                    tweet = (weekdays(Sys.Date()) == "Friday"),
+                   tweet.text = paste0("10Y #Treasury is at ",
+                                       tail(US.SOV.10Y,1),
+                                       "%. How are shorter-term interest rates contributing to the change in the #YieldCurve? #rstats"),
                    email = email)
+
+
+cat("\n---------------------------------------------------\n")
+cat("Weekly Posts done\n")
+cat("---------------------------------------------------\n")
 
 
 
 # GDP Releases -------------------------------------------------------
 
+Chart.Single(series="US.GDP.Real.annualizedqq",
+             periods = 25,
+             tweet = ( Data.Description[Data.Description$Mnemonic == "US.GDP.Real.annualizedqq",6] == Sys.Date() ),
+             tweet.text = paste0( "Real #GDP (qq, annualized) for ",
+                                  as.yearmon(index( tail(US.GDP.Real.annualizedqq, 1) )),
+                                  " came in at ",
+                                  as.numeric( tail(US.GDP.Real.annualizedqq, 1) ), 
+                                  "%, ",
+                                  ifelse(as.numeric( tail(diff(US.GDP.Real.annualizedqq), 1) ) >0, "up ", "down "),
+                                  "from last quarters ",
+                                  as.numeric( tail(US.GDP.Real.annualizedqq, 2)[1] ), 
+                                  "% #rstats"),
+             email = email)
 
-if ( ( as.Date( as.character(tail( fredr_release_dates(release_id = 53L) ,1)[,2]) ) == Sys.Date() ) ||
-     ( as.Date( as.character(tail( fredr_release_dates(release_id = 205L) ,1)[,2]) ) == Sys.Date() ) ){
+
+if ( Data.Description[Data.Description$Mnemonic == "US.GDP.Real",6] == Sys.Date() ) {
   
   tmp <- tempfile(fileext = ".png")
   png(tmp, 12, 12, "in", res = 127.5)  
   misc.GDPExpansionPlot(series = "US.GDP.Real")
   dev.off()
-  post_tweet("How Does the Current U.S Recovery Compare to Prior Recessions? #rstats", media = tmp)
+  misc.postTweet("How Does the Current U.S Recovery Compare to Prior Recessions? #rstats", media = tmp)
   
   tmp <- tempfile(fileext = ".png")
   png(tmp, 12, 12, "in", res = 127.5)
@@ -754,7 +804,12 @@ if ( ( as.Date( as.character(tail( fredr_release_dates(release_id = 53L) ,1)[,2]
   misc.GDPExpansionPlot(series = "US.GDP.Government")
   par(mfrow=c(1,1))
   dev.off()
-  post_tweet("Slow Recovery Across All Major Components of U.S. GDP #recovery #rstats", media = tmp)
+  misc.postTweet("Slow Recovery Across All Major Components of U.S. GDP #recovery #rstats", media = tmp)
+
+}
+
+if ( ( as.Date( as.character(tail( fredr_release_dates(release_id = 53L) ,1)[,2]) ) == Sys.Date() ) ||
+     ( as.Date( as.character(tail( fredr_release_dates(release_id = 205L) ,1)[,2]) ) == Sys.Date() ) ){
   
   GDP.Comparison.Data <- merge(US = misc.FREDdowload("US.GDP.Real"),
                                EU = misc.FREDdowload("EU.GDP.Real"),
@@ -773,10 +828,10 @@ if ( ( as.Date( as.character(tail( fredr_release_dates(release_id = 53L) ,1)[,2]
 Chart.Single(series="US.Activity.NYFed.Current",
              periods = 25,
              tweet = ( Data.Description[Data.Description$Mnemonic == "US.Activity.NYFed.Current",6] == Sys.Date() ),
-             tweet.text = paste0( "#EmpireState Manufacturing Survey for ",
+             tweet.text = paste0( "#EmpireState #ManufacturingSurvey for ",
                                   as.yearmon(index( tail(US.Activity.NYFed.Current, 1) )),
                                   " at ",
-                                  as.numeric( tail(US.Activity.NYFed.Current, 1) ), 
+                                  as.numeric( tail(US.Activity.NYFed.Current, 1) ),
                                   ", suggesting that current business conditions for the state of New York are ",
                                   ifelse(as.numeric( tail(US.Activity.NYFed.Current, 1) ) >0, "improving, ", "worsening, "),
                                   "relative to last month #rstats"),
@@ -785,14 +840,15 @@ Chart.Single(series="US.Activity.NYFed.Current",
 Chart.Single(series="US.Activity.NYFed.Leading",
              periods = 25,
              tweet = ( Data.Description[Data.Description$Mnemonic == "US.Activity.NYFed.Leading",6] == Sys.Date() ),
-             tweet.text = paste0( "#EmpireState Manufacturing Survey for ",
+             tweet.text = paste0( "#EmpireState #ManufacturingSurvey for ",
                                   as.yearmon(index( tail(US.Activity.NYFed.Leading, 1) )),
                                   " at ",
-                                  as.numeric( tail(US.Activity.NYFed.Leading, 1) ), 
+                                  as.numeric( tail(US.Activity.NYFed.Leading, 1) ),
                                   ", suggesting that future (leading) business conditions for the state of New York are ",
                                   ifelse(as.numeric( tail(US.Activity.NYFed.Leading, 1) ) >0, "improving, ", "worsening, "),
-                                  "relative to last month #rstats"),
+                                  "relative to last month #rstats https://whyitmatters.netlify.app/posts/2021-11-15-activity-measures-whats-available-why-care/"),
              email = email)
+
 
 Chart.Single(series="US.IP.CapacityUtilization",
              periods = 25,
@@ -803,6 +859,7 @@ Chart.Single(series="US.IP.CapacityUtilization",
                                   as.numeric( tail(US.IP.CapacityUtilization, 1) ), 
                                   ". Capacity utilization measures capacity used, relative to the total available capacity, to produce finished products. #rstats"),
              email = email)
+
 
 Chart.Single(series="US.Activity.ChicagoFed.Employment",
              periods = 25,
@@ -821,7 +878,7 @@ Chart.Single(series="US.Activity.ChicagoFed",
                                   as.yearmon(index( tail(US.Activity.ChicagoFed, 1) )),
                                   " at ",
                                   as.numeric( tail(US.Activity.ChicagoFed, 1) ), 
-                                  ". Values above/below zero suggest that the national economy is expanding above/below its historical trend rate of growth. #rstats"),
+                                  ". Values above/below zero suggest that the national economy is expanding above/below its historical trend rate of growth. #rstats https://whyitmatters.netlify.app/posts/2021-11-15-activity-measures-whats-available-why-care/"),
              email = email)
 
 
@@ -872,7 +929,7 @@ if  ( as.Date( as.character(tail( fredr_release_dates(release_id = 9L) ,1)[,2]) 
   legend("bottomleft", "Data: St. Louis FRED", cex=.5)
   
   dev.off()
-  post_tweet("#AdvanceRetailSales Report: Behind the Headline #rstats", media = tmp)
+  misc.postTweet("#AdvanceRetailSales Report: Behind the Headline #rstats", media = tmp)
 }
 
 Chart.Duo(series1="US.Activity.RetailSalesSportsGoods", series2="US.Activity.RetailSalesFurniture",
@@ -882,38 +939,102 @@ Chart.Duo(series1="US.Activity.RetailSalesSportsGoods", series2="US.Activity.Ret
           email=email)
 
 
+Chart.Single(series="US.Activity.ECommerceAsShareOfRetail",
+             periods = 25,
+             tweet = ( Data.Description[Data.Description$Mnemonic == "US.Activity.ECommerceAsShareOfRetail",6] == Sys.Date() ),
+             tweet.text = paste0( "Trends Accelerated by the Pandemic: #eCommerce Retail Sales as Percent of Total Sales in ",
+                                  as.yearmon(index( tail(US.Activity.ECommerceAsShareOfRetail, 1) )),
+                                  " at ",
+                                  as.numeric( tail(US.Activity.ECommerceAsShareOfRetail, 1) ), 
+                                  "% #rstats"),
+             email = email)
 
 
+
+cat("\n---------------------------------------------------\n")
+cat("Activity Posts done\n")
+cat("---------------------------------------------------\n")
 
 
 # Labor Market -------------------------------------------------------
 
+Chart.Single(series="US.Activity.ADP",
+             periods = 25,
+             tweet = ( Data.Description[Data.Description$Mnemonic == "US.Activity.ADP",6] == Sys.Date() ),
+             tweet.text = paste0("Today's #ADP data suggests an increase in private sector employment of ",
+                                 round(tail(diff(US.Activity.ADP),1),0), "K jobs", 
+                                 ifelse(as.numeric( tail(diff(US.Activity.ADP), 1) ) >0, ", up ", ", down "),
+                                 "from ", round(as.numeric( tail(diff(US.Activity.ADP), 2)[1] ) ), "K in ",
+                                 as.yearmon(index(tail(US.Activity.ADP,2)[1])),
+                                 ". Note that historically the ADP report is not overly accurate in predicting the payroll number. #rstats"),
+             email = email)
 
-  # Chart.Single(series="US.JOLTS.QuitsRate",
-  #              periods = 25,
-  #              tweet = ( as.Date( as.character(tail( fredr_release_dates(release_id = 192L) ,1)[,2]) ) == Sys.Date() ),  
-  #              tweet.text = "#JOLTS update: Quits rate #rstats",
-  #              email = email)
-  # 
-  # Chart.Single(series="US.JOLTS.HireRate",
-  #              periods = 25,
-  #              tweet = ( as.Date( as.character(tail( fredr_release_dates(release_id = 192L) ,1)[,2]) ) == Sys.Date() ),  
-  #              tweet.text = "#JOLTS update: Hire rate #rstats",
-  #              email = email)
-  # 
-  # Chart.Single(series="US.JOLTS.JobOpeningsRate",
-  #              periods = 25,
-  #              tweet = ( as.Date( as.character(tail( fredr_release_dates(release_id = 192L) ,1)[,2]) ) == Sys.Date() ),  
-  #              tweet.text = "#JOLTS update: Rate of job openings #rstats",
-  #              email = email)
-  
-  Chart.Duo(series1="US.Activity.InitialClaims", series2="US.Activity.ContinuedClaims.4W.MA",
-            periods = 25,
-            tweet = ( as.Date( as.character(tail( fredr_release_dates(release_id = 180L) ,1)[,2]) ) == Sys.Date() ),  
-            tweet.text = "Initial and continued claims (source: FRED) #rstats",
-            email=email)
+Chart.Single(series="US.Unemployment.WageGrowth",
+             periods = 35,
+             tweet = ( Data.Description[Data.Description$Mnemonic == "US.Unemployment.WageGrowth",6] == Sys.Date() ),
+             tweet.text = paste0("Today's #WageData data reports average hourly earnings of $",
+                                 tail(US.Unemployment.WageGrowth,1),
+                                 ". This represents ",
+                                 ifelse( round(tail(diff(US.Unemployment.WageGrowth),1),2)>0, "an increase", "a decrease"),
+                                 " in average hourly earnings of ",
+                                 round(tail(diff(US.Unemployment.WageGrowth),1),2), " cents, relative to last month, and ",
+                                 ifelse( round(tail(diff(US.Unemployment.WageGrowth),1),2)>0, "an increase", "a decrease"),
+                                 " of $", 
+                                 as.numeric( tail(US.Unemployment.WageGrowth,1)) - as.numeric( tail(US.Unemployment.WageGrowth,13)[1] ),
+                                 " or ",
+                                 round( 100* (( as.numeric( tail(US.Unemployment.WageGrowth,1)) - as.numeric( tail(US.Unemployment.WageGrowth,13)[1] )) / as.numeric( tail(US.Unemployment.WageGrowth,13)[1] ) )-1, 1),
+                                 "%, relative to the same month last year #rstats"),
+             email = email)
 
-  
+
+Chart.Single(series="US.JOLTS.QuitsRate",
+             periods = 25,
+             tweet = ( as.Date( as.character(tail( fredr_release_dates(release_id = 192L) ,1)[,2]) ) == Sys.Date() ),
+             tweet.text = "#JOLTS update: Quits Rate #rstats",
+             email = email)
+
+Chart.Single(series="US.JOLTS.QuitsNumber",
+             periods = 25,
+             tweet = ( as.Date( as.character(tail( fredr_release_dates(release_id = 192L) ,1)[,2]) ) == Sys.Date() ),
+             tweet.text = paste0("Today's #JOLTS update suggest that ",
+                                 round(tail(US.JOLTS.QuitsNumber,1)/1000,1),
+                                 "M people quit their job in ",
+                                 as.yearmon(index(tail(US.JOLTS.QuitsNumber,1))),
+                                 " #rstats"),
+             email = email)
+
+Chart.Single(series="US.JOLTS.HireRate",
+             periods = 25,
+             tweet = ( as.Date( as.character(tail( fredr_release_dates(release_id = 192L) ,1)[,2]) ) == Sys.Date() ),
+             tweet.text = "#JOLTS update: Hire Rate #rstats",
+             email = email)
+
+Chart.Single(series="US.JOLTS.JobOpeningsRate",
+             periods = 25,
+             tweet = ( as.Date( as.character(tail( fredr_release_dates(release_id = 192L) ,1)[,2]) ) == Sys.Date() ),
+             tweet.text = "#JOLTS update: Rate of job openings #rstats",
+             email = email)
+
+Chart.Duo(series1="US.Activity.InitialClaims", series2="US.Activity.ContinuedClaims.4W.MA",
+          periods = 25,
+          tweet = ( as.Date( as.character(tail( fredr_release_dates(release_id = 180L) ,1)[,2]) ) == Sys.Date() ),  
+          tweet.text = "Initial and continued claims (source: FRED) #rstats",
+          email=email)
+
+Chart.Single(series="US.Payroll",
+             periods = 25,
+             tweet = ( as.Date( as.character(tail( fredr_release_dates(release_id = 192L) ,1)[,2]) ) == Sys.Date() ),
+             tweet.text = paste0("Today's #Payroll report suggests an increase in private sector employment of ",
+                                 round(tail(diff(US.Payroll),1),0), "K jobs", 
+                                 ifelse(as.numeric( tail(diff(US.Payroll), 1) ) >0, ", up ", ", down "),
+                                 "from ", round(as.numeric( tail(diff(US.Payroll), 2)[1] ) ), "K in ",
+                                 as.yearmon(index(tail(US.Payroll,2)[1])),
+                                 " #rstats"),
+             email = email)
+
+
+
+ 
 if ( as.Date( as.character(tail( fredr_release_dates(release_id = 50L) ,1)[,2]) ) == Sys.Date() ) {
   tmp <- tempfile(fileext = ".png")
   png(tmp, 12, 12, "in", res = 127.5)  
@@ -921,7 +1042,7 @@ if ( as.Date( as.character(tail( fredr_release_dates(release_id = 50L) ,1)[,2]) 
   misc.GDPExpansionPlot(series = "US.Payroll")
   
   dev.off()
-  post_tweet("#Payroll Update: Comparing the current #Recovery of the #LaborMarket to previous recessions #rstats", media = tmp)
+  misc.postTweet("#Payroll Update: Comparing the current #Recovery of the #LaborMarket to previous recessions #rstats", media = tmp)
 }
 
 
@@ -999,6 +1120,9 @@ Chart.Duo(series1="US.CPI.AlcoholicBeverages.mm.yy", series2="US.CPI.AlcoholicBe
 
 
 
+cat("\n---------------------------------------------------\n")
+cat("Labor market and Inflation posts done\n")
+cat("---------------------------------------------------\n")
 
 
 # Housing -------------------------------------------------------
@@ -1008,6 +1132,20 @@ Chart.Single(series="US.Housing.CaseShiller",
              tweet = ( as.Date( as.character(tail( fredr_release_dates(release_id = 199L) ,1)[,2]) ) == Sys.Date() ),  
              tweet.text = "S&P/Case-Shiller U.S. National Home Price Index (source: FRED, series CSUSHPINSA) #housing #rstats",
              email = email)
+
+Chart.Single(series="US.Housing.AllTransactionsPriceIndex",
+             periods = 35,
+             tweet = ( Data.Description[Data.Description$Mnemonic == "US.Housing.AllTransactionsPriceIndex",6] == Sys.Date() ),
+             tweet.text = paste0("#HousePrices",
+                                 ifelse(as.numeric( diff( tail(US.Housing.AllTransactionsPriceIndex, 2)) )>0, " up ", " down "),
+                                 round(100*(as.numeric(tail(US.Housing.AllTransactionsPriceIndex,1))/as.numeric(tail(US.Housing.AllTransactionsPriceIndex,2)[1]) -1),1),
+                                 "% q/q, with the index at ",
+                                 as.numeric(tail(US.Housing.AllTransactionsPriceIndex,1)),
+                                 ". This is ",
+                                 round(100*(as.numeric(tail(US.Housing.AllTransactionsPriceIndex,1)) / max(US.Housing.AllTransactionsPriceIndex[index(US.Housing.AllTransactionsPriceIndex) < as.Date("2010-01-01")]) -1),1),
+                                 "% above the peak prior to the 2008/09 recession #rstats"),
+             email = email)
+
 
 
 Chart.Single(series="US.Housing.30YMortgageRate",
@@ -1019,6 +1157,7 @@ Chart.Single(series="US.Housing.30YMortgageRate",
                                   as.numeric( diff( tail(US.Housing.30YMortgageRate, 2)) ),
                                   " p.p. from last week. #rstats"),
              email = email)
+
 
 Chart.Four(series1="US.Housing.30YMortgageRate",
            series2="US.Housing.15YMortgageRate",
@@ -1036,6 +1175,68 @@ Chart.Four(series1="US.Housing.30YMortgageRate",
              email = email)
 
 
+Chart.Four(series1="US.Housing.NewPrivateHousingPermits",
+           series2="US.Housing.NewPrivateHousingStarts",
+           series3="US.Housing.NewPrivateHousingConstruction",
+           series4="US.Housing.NewPrivateHousingCompleted",
+           periods = 35,
+           tweet = ( Data.Description[Data.Description$Mnemonic == "US.Housing.NewPrivateHousingStarts",6] == Sys.Date() ),
+           tweet.text = paste0( "#Housing update: Housing Units under construction in ", 
+                                as.yearmon(index(tail(US.Housing.NewPrivateHousingConstruction, 1))),
+                                " at ",
+                                as.numeric( tail(US.Housing.NewPrivateHousingConstruction, 1) ), 
+                                ifelse(as.numeric( diff( tail(US.Housing.NewPrivateHousingConstruction, 2)) )>0, "K, up ", ", down "),
+                                as.numeric( round( diff( tail(US.Housing.NewPrivateHousingConstruction, 2)),1) ),
+                                "K from last month. New Housing Permits Authorized at ",
+                                as.numeric( tail(US.Housing.NewPrivateHousingPermits, 1) ),
+                                "K. #rstats"),
+           email = email)
+
+
+if ( Data.Description[Data.Description$Mnemonic == "US.Housing.NewPrivate1UnitCompleted",6] == Sys.Date()  ) {
+  
+  x  <- merge(US.Housing.NewPrivate1UnitCompleted=misc.FREDdowload("US.Housing.NewPrivate1UnitCompleted"),
+              US.Housing.NewPrivate2UnitCompleted=misc.FREDdowload("US.Housing.NewPrivate2UnitCompleted"),
+              US.Housing.NewPrivate5UnitCompleted=misc.FREDdowload("US.Housing.NewPrivate5UnitCompleted") )
+  x  <- x[index(x) >= as.Date("2000-01-01")]
+  
+  plot.col    = brewer.pal(8, "Set1")
+  plot.legend = character()
+  for (idx in 1:ncol(x)) plot.legend <- c(plot.legend, 
+                                          gsub("New Privately-Owned Housing Units Completed: ", "", 
+                                               Data.Description[Data.Description$Mnemonic == colnames(x)[idx],3]))
+  plot.ylim = c(0, 1.25*max(rowSums(x)))
+  
+  chart.filename = paste0("HousingUnitsCompleted.png")
+  png(filename = chart.filename, 20, 12, "in", res = 127.5 )
+  
+  x.plot=barplot(x, col = plot.col, 
+                 border="NA", 
+                 main = "New Privately-Owned Housing Units Completed", 
+                 ylab = "Thousands of Units (SAAR)",
+                 xaxt = "n", cex.axis = 1.3, cex.names = 1.3, cex.lab = 1.3, ylim = plot.ylim)
+  axis(1, at=x.plot, as.yearmon( index(x)) , cex.axis = 1.2)
+  
+  # Added recession areas
+  NBER.Recessions = as.Date(as.character(t(nberDates())), format="%Y%m%d")
+  NBER.Recessions = NBER.Recessions[as.Date(NBER.Recessions) > as.Date("2000-01-01")]
+  plot.Limits <- par('usr')
+  for (idx in seq(1, length(NBER.Recessions), 2) ) rect(x.plot[grep(as.yearmon(NBER.Recessions[idx]), as.yearmon(index(x)))], 
+                                                        plot.Limits[3], 
+                                                        x.plot[grep(as.yearmon(NBER.Recessions[idx+1]), as.yearmon(index(x)))], 
+                                                        plot.Limits[4], col="#0000FF19", lty=0)
+  legend("topleft", plot.legend, fill = plot.col, cex=1.3, bty = "n")
+  legend("bottomleft", "Data: St. Louis FRED", cex=.8)
+  
+  dev.off()
+  email <<- gm_attach_file(email, chart.filename)
+  misc.postTweet(paste0("#Housing Details: Breakdown of New Privately-Owned Housing Units Completed for ",
+                    as.yearmon(index(tail(x,1)))," shows #SingleFamilyHomes account for roughly ",
+                    round( 100*tail(US.Housing.NewPrivate1UnitCompleted,1) / tail(rowSums(x),1), 1),
+                    "% of all completions #rstats"), 
+             media = chart.filename)
+}
+
 # Financial Soundness -------------------------------------------------------
 
 Chart.Single(series="US.HouseholdDebt",
@@ -1047,6 +1248,7 @@ Chart.Single(series="US.HouseholdDebt",
                                   as.numeric( tail(US.HouseholdDebt, 1) ), 
                                   ". This index measures the overall level of household indebtedness (commonly related to consumer loans and mortgages) as a share of GDP. #rstats"),
              email = email)
+
 
 # Motor Vehicles -------------------------------------------------------
 
@@ -1068,7 +1270,7 @@ if ( as.Date( as.character(tail( fredr_release_dates(release_id = 93L) ,1)[,2]) 
     
     par(mfrow=c(1,1))
     dev.off()
-    post_tweet(paste0("#SupplyDisruptions continue to hit #trucks: Total #LightVehicle sales at ", 
+    misc.postTweet(paste0("#SupplyDisruptions continue to hit #trucks: Total #LightVehicle sales at ", 
                       round( tail(US.Auto.Autosales,1), 2),
                       "M units (saar), ",
                       ifelse( (as.numeric(tail(US.Auto.Autosales,1)) - as.numeric(tail(US.Auto.Autosales,2)[1]) > 0 ),
@@ -1146,7 +1348,8 @@ if  ( as.Date( as.character(tail( fredr_release_dates(release_id = 22L) ,1)[,2])
   legend("bottomleft", "Data: St. Louis FRED", cex=.5)
   
   dev.off()
-  post_tweet("Increase in Bank Balance Sheets Post-Pandemic Mostly Driven by Higher Cash and Treasuries/Agencies #BankLending #rstats", media = tmp)
+  email <<- gm_attach_file(email, tmp)
+  misc.postTweet("Increase in Bank Balance Sheets Post-Pandemic Mostly Driven by Higher Cash and Treasuries/Agencies #BankLending #rstats", media = tmp)
 }
 
 Chart.Duo(series1="US.Banks.AutoLoansSecuritized.qq.yy", series2="US.Banks.StudentLoans.qq.yy",
@@ -1211,7 +1414,7 @@ if ( Data.Description[Data.Description$Mnemonic == "US.SLOOS.AutoLoansStandards"
   legend("bottomleft", "Data: St. Louis FRED", cex=.5)
   
   dev.off()
-  post_tweet(paste0("Need $$$? Banks still easing lending standards in ",
+  misc.postTweet(paste0("Need $$$? Banks still easing lending standards in ",
                     x.period[2],
                     " for auto loans, credit card loans, and consumer loans #SLOOS #rstats"), media = tmp)
 }
@@ -1263,7 +1466,7 @@ if ( Data.Description[Data.Description$Mnemonic == "US.SLOOS.IncreasingSpreadsLa
   legend("bottomleft", "Data: St. Louis FRED", cex=.65, bty = "n")
   
   dev.off()
-  post_tweet(paste0("Cheap Financing? Amidst strong demand, fewer banks still easing lending standards for C&I loans in ",
+  misc.postTweet(paste0("Cheap Financing? Amidst strong demand, fewer banks still easing lending standards for C&I loans in ",
                     x.period[2]
                     ,"; keeping an eye on Spreads of Loan Rates over Banks' Funding Costs #SLOOS #rstats"), media = tmp)
 }
@@ -1317,10 +1520,15 @@ if ( Data.Description[Data.Description$Mnemonic == "US.SLOOS.CRELoanDemandLand",
   legend("bottomleft", "Data: St. Louis FRED", cex=.65, bty = "n")
   
   dev.off()
-  post_tweet(paste0("Update on #CommercialRealEstate Loans: Demand less strong and tighter standards in ",
+  misc.postTweet(paste0("Update on #CommercialRealEstate Loans: Demand less strong and tighter standards in ",
                     x.period[2]
                     ," for land development and construction loans suggest CRE loans harder to come by #SLOOS #rstats"), media = tmp)
 }
+
+
+cat("\n---------------------------------------------------\n")
+cat("Housing, Banking and Financial Soundness posts done\n")
+cat("---------------------------------------------------\n")
 
 
 # Transportation -------------------------------------------------------
@@ -1332,7 +1540,7 @@ if ( Data.Description[Data.Description$Mnemonic == "US.Transportation.Air",6] ==
              series4 = "US.Transportation.PublicTransit", 
              periods = 25,
              tweet = TRUE,
-             tweet.text = "Air Traffic coming back, Public Transportation not so much #rstats",
+             tweet.text = "Air Traffic coming back, Public Transportation not so much #rstats https://whyitmatters.netlify.app/posts/2021-11-15-activity-measures-whats-available-why-care/",
              email = email)
 
 if ( Data.Description[Data.Description$Mnemonic == "US.Transportation.Rail",6] == Sys.Date()  )
@@ -1344,44 +1552,52 @@ if ( Data.Description[Data.Description$Mnemonic == "US.Transportation.Rail",6] =
             email=email)
 
 
+
+cat("\n---------------------------------------------------\n")
+cat("Transportation posts done\n")
+cat("---------------------------------------------------\n")
+
+
 # COVID -------------------------------------------------------
 
+covid.countries = c("United States", "China", "Japan", "Germany", "United Kingdom", "India", "France", "Italy", "Brazil", "Canada")
+covid.cases     = covid19(covid.countries, verbose = FALSE)
+plot.col        = brewer.pal(10, "Paired")
+
 if (weekdays(Sys.Date()) %in% c("Tuesday", "Thursday", "Sunday")) {
-  
-  covid.countries = c("United States", "China", "Japan", "Germany", "United Kingdom", "India", "France", "Italy", "Brazil", "Canada")
-  covid.cases     = covid19(covid.countries, verbose = FALSE)
-  plot.col        = brewer.pal(10, "Paired")
-  
+
   chart.filename = "COVID19.png"
-  png(filename=chart.filename, 24, 12, "in", res=127.5)
+  png(filename=chart.filename, 18, 12, "in", res=127.5)
   
-  par(mfrow = c(2,3))
-  covid.countries = c("United States", "China", "Japan", "Germany", "United Kingdom", "India")
+  par(mfrow = c(3,3))
+  covid.countries = c("United States", "China", "Japan", "Germany", "United Kingdom", "India", "Italy", "Brazil", "Canada")
   for (idx in covid.countries) {
     x = covid.cases[covid.cases$administrative_area_level_1==idx, c("date", "confirmed")]
+    x = x[!is.na(x$confirmed),]
     x = zoo(diff(x$confirmed), as.Date(x$date))
     plot(x, ylab = "Daily Cases (blue) / 7-day average (red)", main = idx, 
          xlab = "", xaxt = "n", col = plot.col[1], lwd = 3, cex.main = 2.2, cex.axis = 1.4, cex.lab = 1.3)
-    lines(rollmean(x, k=7), col = plot.col[6], lwd = 3)
+    lines(rollmean(x, k=7, align="right", na.rm = TRUE), col = plot.col[6], lwd = 3)
+    points(index(tail(na.omit(x),1)), tail(rollmean(x, k=7, align="right", na.rm = TRUE),1), pch = 19, lwd = 5, col = plot.col[6])
     axis(1, floor_date(index(x), 'month'), as.yearmon(floor_date(index(x), 'month')), cex.axis = 1)
     legend("topleft", "Data: https://covid19datahub.io", cex=1.2, bty = "n")
     grid()
   }
   par(mfrow = c(1,1))
-  
   dev.off()
+  
   email <<- gm_attach_file(email, chart.filename)
-  post_tweet("Update on daily #COVID19 cases in the 6 largest economies #rstats", media = chart.filename)
+  misc.postTweet(tweet.text = "Daily #COVID19 cases in major economies #rstats", media = chart.filename)
   
   chart.filename = "COVID19Hospitalizations.png"
-  png(filename=chart.filename, 24, 12, "in", res=127.5)
+  png(filename=chart.filename, 18, 8, "in", res=127.5)
   
   
   par(mfrow = c(2,3))
   covid.countries = c("United States", "Japan", "Germany", "France", "Italy", "Canada")
   for (idx in covid.countries) {
     x = covid.cases[covid.cases$administrative_area_level_1==idx, c("date", "hosp")]
-    x = zoo((x$hosp), as.Date(x$date))
+    x = zoo(x$hosp, as.Date(x$date))
     if (length(na.omit(x)) > 0) {
       plot(x, ylab = "Number of hospitalized patients on date", main = idx,
            xlab = "", xaxt = "n", col = plot.col[2], lwd = 3, cex.main = 2.2, cex.axis = 1.4, cex.lab = 1.3)
@@ -1392,34 +1608,34 @@ if (weekdays(Sys.Date()) %in% c("Tuesday", "Thursday", "Sunday")) {
       #        "\nLatest obs: ", tail(na.omit(x[,idx]),1)), font = 2)
       axis(1, floor_date(index(x), 'month'), as.yearmon(floor_date(index(x), 'month')), cex.axis = 1)
       legend("bottomleft", "Data: https://covid19datahub.io", cex=1.2, bty = "n")
-      legend("topleft", paste0("Peak: ", max(x[,idx], na.rm = TRUE),
-                               "\nLatest obs: ", tail(na.omit(x[,idx]),1)), cex = 1.5, bty = "n")
+      legend("topleft", paste0("Peak: ", max(x, na.rm = TRUE),
+                               "\nLatest obs: ", tail(na.omit(x),1)), cex = 1.5, bty = "n")
       grid()
     } else cat("\n- Skipping ", idx)
   }
   par(mfrow = c(1,1))
-  
   dev.off()
+  
   email <<- gm_attach_file(email, chart.filename)
-  post_tweet("Update on #COVID19 Hospitalizations in major economies.  #rstats", media = chart.filename)
+  misc.postTweet(tweet.text = "Update on #COVID19 Hospitalizations in major economies.  #rstats", media = chart.filename)
   
   
   chart.filename = "COVID19ICU.png"
-  png(filename=chart.filename, 24, 12, "in", res=127.5)
+  png(filename=chart.filename, 18, 8, "in", res=127.5)
   
   par(mfrow = c(2,3))
   covid.countries = c("United States", "Japan", "Germany", "France", "Italy", "Canada")
   for (idx in covid.countries) {
     x = covid.cases[covid.cases$administrative_area_level_1==idx, c("date", "icu")]
-    x = zoo((x$icu), as.Date(x$date))
+    x = zoo(x$icu, as.Date(x$date))
     if (length(na.omit(x)) > 0) {
-      plot(x, ylab = "Number of hospitalized patients in intensive therapy on date", main = idx,
+      plot(x, ylab = "Number of hospitalized patients in intensive therapy", main = idx,
            xlab = "", xaxt = "n", col = plot.col[2], lwd = 3, cex.main = 2.2, cex.axis = 1.4, cex.lab = 1.3)
-      points(index(tail(na.omit(x[,idx]),1)), tail(na.omit(x[,idx]),1), pch = 19, lwd = 5, col = plot.col[2])
+      points(index(tail(na.omit(x),1)), tail(na.omit(x),1), pch = 19, lwd = 5, col = plot.col[2])
       axis(1, floor_date(index(x), 'month'), as.yearmon(floor_date(index(x), 'month')), cex.axis = 1)
       legend("bottomleft", "Data: https://covid19datahub.io", cex=1.2, bty = "n")
-      legend("topleft", paste0("Peak: ", max(x[,idx], na.rm = TRUE),
-                               "\nLatest obs: ", tail(na.omit(x[,idx]),1)), cex = 1.5, bty = "n")
+      legend("topleft", paste0("Peak: ", max(x, na.rm = TRUE),
+                               "\nLatest obs: ", tail(na.omit(x),1)), cex = 1.5, bty = "n")
       grid()
     } else cat("\n- Skipping ", idx)
   }
@@ -1427,47 +1643,117 @@ if (weekdays(Sys.Date()) %in% c("Tuesday", "Thursday", "Sunday")) {
   dev.off()
   
   email <<- gm_attach_file(email, chart.filename)
-  post_tweet("Update on #COVID19 Intensive Care Patients in major economies. #rstats", media = chart.filename)
+  misc.postTweet(tweet.text = "Update on #COVID19 Intensive Care Patients in major economies. #rstats", media = chart.filename)
+ 
+}
+
+if (weekdays(Sys.Date()) %in% c("Wednesday", "Saturday")) {
   
   
   chart.filename = "COVID19VaccinationRatio.png"
-  png(filename=chart.filename, 24, 12, "in", res=127.5)
+  png(filename=chart.filename, 18, 12, "in", res=127.5)
   
   covid.countries = c("United States", "Japan", "Germany", "United Kingdom", "India", "France", "Italy", "Brazil", "Canada")
   
-  x = covid.cases[, c("date", "administrative_area_level_1", "people_vaccinated", "population")]
+  x                  = covid.cases[, c("date", "administrative_area_level_1", "people_vaccinated", "population")]
   x$vaccinated_ratio = x$people_vaccinated/x$population*100
   
-  y = melt(x, id=c("date", "administrative_area_level_1") )
-  x = cast(y[y$variable=="vaccinated_ratio",], date ~ administrative_area_level_1 + variable)
-  x = zoo(x, as.Date(x$date))
-  colnames(x) = gsub( "_vaccinated_ratio","", colnames(x))
-  x= x[index(x) > as.Date("2020-12-01"),covid.countries]
+  y             = melt(x, id=c("date", "administrative_area_level_1") )
+  x             = cast(y[y$variable=="vaccinated_ratio",], date ~ administrative_area_level_1 + variable)
+  x             = zoo(x, as.Date(x$date))
+  colnames(x)   = gsub( "_vaccinated_ratio","", colnames(x))
+  x             = x[index(x) > as.Date("2020-12-01"),covid.countries]
+  country.order = covid.countries[order(tail(na.locf(x),1), decreasing = T)] # because we will use custom text labels to indicate last values, we need to determine the country's order
   
-  plot(x[,1], type = "n", ylab = "Vaccinated as % of population", main = "Vaccination Rates Among Major Economies", ylim = c(0,100),
-       xlab = "", 
-       #cex.main = 2.2, cex.axis = 1.4, cex.lab = 1.3, 
+  par(oma=c(3,3,3,3))
+  par(mar=c(5,5,4,2) + 0.1)
+  plot(x[,1], type = "n", 
+       main = "Partially and fully vaccinated People as % of Total Population: Major Economies", 
+       xlab = "", ylab = "Fully or partially vaccinated as % of population", ylim = c(0,100),
+       cex.main = 2.2,cex.axis = 2, cex.lab = 2, 
        xaxt = "n",
-       xlim = c(head(index(x),1), tail(index(x),1))  )
+       xlim = c(head(index(x),1), tail(index(x),1)+months(3))  )
   
   
   axis(1, seq( head(index(x),1), tail(index(x),1) , "months" ),
-       as.character( as.yearmon( seq( head(index(x),1), tail(index(x),1), "months" ))), cex.axis = .8)
+       as.character( as.yearmon( seq( head(index(x),1), tail(index(x),1), "months" ))), cex.axis = 1.0)
   
   for (idx in 1:length(covid.countries)) {
-    lines( x[,idx], col = plot.col[idx], lwd = 3)
+    lines( x[,idx], col = plot.col[idx], lwd = 4)
     points(index(tail(na.omit(x[,idx]),1)), tail(na.omit(x[,idx]),1), pch = 19, lwd = 5, col = plot.col[idx])
+    
+    text(index(tail(na.omit(x[,1]),1))+days(10), 1.1*max(x, na.rm = TRUE)-grep(covid.countries[idx], country.order)*5, 
+         paste0(covid.countries[idx], ": ", round( tail(na.omit(x[,idx]),1),1), "%"), col = plot.col[idx],
+         adj = 0, cex = 1.4, font = 2)
   }
   
-  legend("topleft", colnames(x), fill = plot.col, bty = "n")
   legend("bottomright", "Data: https://covid19datahub.io", bty = "n")
-  grid()
-  
+  abline(h=c(20, 40, 60, 80), col =  plot.col[2], lty = 3)
   dev.off()
+ 
   email <<- gm_attach_file(email, chart.filename)
-  post_tweet("Update on #VaccinationStatus in major economies. Details here: https://whyitmatters.netlify.app/posts/2021-11-10-covid19-update/  #rstats", media = chart.filename)
+  misc.postTweet(tweet.text = "COVID 19 #PartialVaccination in major economies (defined as number of people who received at least one dose over total population). Details here: https://whyitmatters.netlify.app/posts/2021-11-10-covid19-update/  #rstats", media = chart.filename)
   
 }
 
 
+if (weekdays(Sys.Date()) %in% c("Tuesday", "Sunday")) {
+  
+  
+  chart.filename = "COVID19FullyVaccinationRatio.png"
+  png(filename=chart.filename, 18, 12, "in", res=127.5)
+  
+  covid.countries = c("United States", "Japan", "Germany", "United Kingdom", "India", "France", "Italy", "Brazil", "Canada")
+  x                  = covid.cases[, c("date", "administrative_area_level_1", "people_fully_vaccinated", "population")]
+  x$vaccinated_ratio = x$people_fully_vaccinated/x$population*100
+  
+  y             = melt(x, id=c("date", "administrative_area_level_1") )
+  x             = cast(y[y$variable=="vaccinated_ratio",], date ~ administrative_area_level_1 + variable)
+  x             = zoo(x, as.Date(x$date))
+  colnames(x)   = gsub( "_vaccinated_ratio","", colnames(x))
+  x             = x[index(x) > as.Date("2020-12-01"),covid.countries]
+  country.order = covid.countries[order(tail(na.locf(x),1), decreasing = T)] # because we will use custom text labels to indicate last values, we need to determine the country's order
+  
+  par(oma=c(3,3,3,3))
+  par(mar=c(5,5,4,2) + 0.1)
+  plot(x[,1], type = "n", 
+       main = "Fully Vaccinated People as % of Total Population: Major Economies", 
+       xlab = "", ylab = "Fully vaccinated as % of population", ylim = c(0,100),
+       cex.main = 2.5,cex.axis = 2, cex.lab = 2, 
+       xaxt = "n",
+       xlim = c(head(index(x),1), tail(index(x),1)+months(3))  )
+  
+  
+  axis(1, seq( head(index(x),1), tail(index(x),1) , "months" ),
+       as.character( as.yearmon( seq( head(index(x),1), tail(index(x),1), "months" ))), cex.axis = 1.0)
+  
+  for (idx in 1:length(covid.countries)) {
+    lines( x[,idx], col = plot.col[idx], lwd = 4)
+    points(index(tail(na.omit(x[,idx]),1)), tail(na.omit(x[,idx]),1), pch = 19, lwd = 5, col = plot.col[idx])
+    
+    text(index(tail(na.omit(x[,1]),1))+days(10), 1.1*max(x, na.rm = TRUE)-grep(covid.countries[idx], country.order)*5, 
+         paste0(covid.countries[idx], ": ", round( tail(na.omit(x[,idx]),1),1), "%"), col = plot.col[idx],
+         adj = 0, cex = 1.4, font = 2)
+  }
+  
+  legend("bottomright", "Data: https://covid19datahub.io", bty = "n")
+  abline(h=c(20, 40, 60, 80), col =  plot.col[2], lty = 3)
+  dev.off()
+  
+  email <<- gm_attach_file(email, chart.filename)
+  misc.postTweet("COVID 19 #FullVaccination in major economies (defined as number of people who received all doses prescribed by the vaccination protocol over total population). Details here: https://whyitmatters.netlify.app/posts/2021-11-10-covid19-update/  #rstats", media = chart.filename)
+  
+}
+
+
+cat("\n---------------------------------------------------\n")
+cat("COVID posts done\n")
+cat("---------------------------------------------------\n")
+
+
 gm_send_message(email)
+
+
+cat("\n---------------------------------------------------\n")
+cat("Email sent\n")
+cat("---------------------------------------------------\n")
